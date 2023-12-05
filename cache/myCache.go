@@ -3,6 +3,7 @@ package cache
 import (
 	"fmt"
 	"log"
+	"myCache/rest"
 	"sync"
 )
 
@@ -20,6 +21,7 @@ type Group struct {
 	name      string
 	getter    Getter
 	mainCache cache
+	peers     rest.PeerPicker
 }
 
 var (
@@ -68,7 +70,15 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 func (g *Group) load(key string) (value ByteView, err error) {
-	return
+	if g.peers != nil {
+		if peer, ok := g.peers.PickPeer(key); ok {
+			if value, err = g.getFromPeer(peer, key); err == nil {
+				return value, nil
+			}
+			log.Println("[GeeCache] Failed to get from peer", err)
+		}
+	}
+	return g.getLocally(key)
 }
 
 func (g *Group) getLocally(key string) (ByteView, error) {
@@ -83,4 +93,21 @@ func (g *Group) getLocally(key string) (ByteView, error) {
 
 func (g *Group) populateCache(key string, value ByteView) {
 	g.mainCache.add(key, value)
+}
+
+// RegisterPeers 将 实现了 PeerPicker 接口的 HTTPPool 注入到 Group 中。
+func (g *Group) RegisterPeers(peers rest.PeerPicker) {
+	if g.peers != nil {
+		panic("RegisterPeerPicker called more than once")
+	}
+	g.peers = peers
+}
+
+// 使用实现了 PeerGetter 接口的 httpGetter 从访问远程节点，获取缓存值
+func (g *Group) getFromPeer(peer rest.PeerGetter, key string) (ByteView, error) {
+	bytes, err := peer.Get(g.name, key)
+	if err != nil {
+		return ByteView{}, err
+	}
+	return ByteView{b: bytes}, nil
 }
