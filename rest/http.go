@@ -2,9 +2,11 @@ package rest
 
 import (
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"log"
 	"myCache/cache"
 	"myCache/consistenthash"
+	pb "myCache/mycachepb"
 	"net/http"
 	"strings"
 	"sync"
@@ -34,7 +36,7 @@ func (p *HTTPPool) Log(format string, v ...interface{}) {
 	log.Printf("[Server %s] %s", p.self, fmt.Sprintf(format, v...))
 }
 
-func (p *HTTPPool) ServerHTTP(w http.ResponseWriter, r *http.Request) {
+func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, p.basePath) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
@@ -58,8 +60,14 @@ func (p *HTTPPool) ServerHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body, err := proto.Marshal(&pb.Response{Value: view.ByteSlice()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Write(view.ByteSlice())
+	w.Write(body)
 }
 
 func (p *HTTPPool) Set(peers ...string) {
@@ -83,5 +91,7 @@ func (p *HTTPPool) PickPeer(key string) (PeerGetter, bool) {
 	return nil, false
 }
 
-var _ PeerPicker = (*HTTPPool)(nil)
-var _ PeerGetter = (*httpGetter)(nil)
+var (
+	_ PeerPicker = (*HTTPPool)(nil)
+	_ PeerGetter = (*httpGetter)(nil)
+)
